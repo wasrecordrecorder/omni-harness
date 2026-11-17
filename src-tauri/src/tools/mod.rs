@@ -99,17 +99,49 @@ impl ToolDispatcher {
     }
 
     pub fn for_workspace(&self, workspace_root: &std::path::Path, chat_id: &str) -> std::sync::Arc<Self> {
-        let mut roots = vec![workspace_root.to_path_buf()];
-        let chat_tmp = crate::state::AppState::resolve_chat_temp_dir(Some(chat_id));
-        let _ = std::fs::create_dir_all(&chat_tmp);
-        if !roots.contains(&chat_tmp) {
-            roots.push(chat_tmp);
-        }
-        let data_root = crate::state::AppState::resolve_data_dir();
-        let _ = std::fs::create_dir_all(&data_root);
-        if !roots.contains(&data_root) {
-            roots.push(data_root);
-        }
+        let is_full_pc = workspace_root
+            .to_string_lossy()
+            .replace('\\', "/")
+            .contains("/Workspace");
+
+        let roots = if is_full_pc {
+            Vec::new()
+        } else {
+            let mut roots = vec![workspace_root.to_path_buf()];
+            let chat_tmp = crate::state::AppState::resolve_chat_temp_dir(Some(chat_id));
+            let _ = std::fs::create_dir_all(&chat_tmp);
+            if !roots.contains(&chat_tmp) {
+                roots.push(chat_tmp);
+            }
+            let data_root = crate::state::AppState::resolve_data_dir();
+            let _ = std::fs::create_dir_all(&data_root);
+            if !roots.contains(&data_root) {
+                roots.push(data_root.clone());
+            }
+
+            let snap_path = data_root.join("workspaces_snapshot.json");
+            if let Ok(content) = std::fs::read_to_string(&snap_path) {
+                if let Ok(list) = serde_json::from_str::<Vec<serde_json::Value>>(&content) {
+                    for item in list {
+                        if let Some(p) = item.get("path").and_then(|v| v.as_str()) {
+                            let pb = PathBuf::from(p);
+                            if pb.exists() && !roots.contains(&pb) {
+                                roots.push(pb);
+                            }
+                        }
+                    }
+                }
+            }
+
+            for r in &self.allowed_roots {
+                if !roots.contains(r) {
+                    roots.push(r.clone());
+                }
+            }
+
+            roots
+        };
+
         std::sync::Arc::new(Self {
             pty_manager: self.pty_manager.clone(),
             cdp_controller: self.cdp_controller.clone(),

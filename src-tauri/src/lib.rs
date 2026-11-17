@@ -999,9 +999,14 @@ async fn start_chat_stream(
     let workspace_path = match workspace_dir.as_deref() {
         Some(dir) if !dir.trim().is_empty() => PathBuf::from(dir),
         _ => {
-            let chat_ws = state::AppState::resolve_install_workspace().join(&chat_id);
-            let _ = std::fs::create_dir_all(&chat_ws);
-            chat_ws
+            let app_ws = state.app_state.get_workspace_dir().await;
+            if !app_ws.as_os_str().is_empty() && app_ws.exists() && app_ws != state::AppState::resolve_install_workspace() {
+                app_ws
+            } else {
+                let chat_ws = state::AppState::resolve_install_workspace().join(&chat_id);
+                let _ = std::fs::create_dir_all(&chat_ws);
+                chat_ws
+            }
         }
     };
     let workspace_str = workspace_path.to_string_lossy().to_string();

@@ -117,12 +117,20 @@ fn ensure_within_roots(resolved: PathBuf, raw_str: &str, allowed_roots: &[PathBu
         return Ok(norm_resolved);
     }
     let res_lower = norm_resolved.to_string_lossy().to_lowercase();
+    let res_prefix = res_lower.trim_end_matches('\\');
+
     for root in allowed_roots {
         let can_root = root.canonicalize().unwrap_or_else(|_| root.clone());
         let norm_root = normalize_windows_path(&can_root);
         let root_lower = norm_root.to_string_lossy().to_lowercase();
         let root_prefix = root_lower.trim_end_matches('\\');
+
         if res_lower == root_prefix || res_lower.starts_with(&format!("{}\\", root_prefix)) || res_lower.starts_with(&format!("{}/", root_prefix)) {
+            return Ok(norm_resolved);
+        }
+
+        let is_bare_drive = res_prefix.len() <= 2 && res_prefix.ends_with(':');
+        if !is_bare_drive && (root_prefix.starts_with(&format!("{}\\", res_prefix)) || root_prefix.starts_with(&format!("{}/", res_prefix))) {
             return Ok(norm_resolved);
         }
     }

@@ -989,8 +989,14 @@ class ChatStore {
                         m.streaming = false;
                         m.paused = true;
                         m.statusText = 'Paused';
-                        m.finishedAt = m.finishedAt || Date.now();
-                        this.finalizeRunningTools(m, 'paused');
+                        const lastActive = Math.max(
+                          m.startedAt || 0,
+                          s.updatedAt || 0,
+                          ...(m.steps || []).map((st: any) => st.finishedAt || st.startedAt || 0),
+                          ...(m.toolCalls || []).map((tc: any) => tc.finishedAt || tc.startedAt || 0)
+                        ) || m.startedAt || Date.now();
+                        m.finishedAt = m.finishedAt || lastActive;
+                        this.finalizeRunningTools(m, 'paused', undefined, m.finishedAt);
                         changed = true;
                       }
                       if (m.paused) hasPaused = true;
@@ -1048,23 +1054,30 @@ class ChatStore {
   private finalizeRunningTools(
     msg: ChatMessage,
     targetStatus: 'error' | 'cancelled' | 'paused' | 'success',
-    errText?: string
+    errText?: string,
+    fallbackEndTime?: number
   ): void {
-    const now = Date.now();
+    const now = fallbackEndTime ?? Date.now();
     if (Array.isArray(msg.toolCalls)) {
       msg.toolCalls = msg.toolCalls.map((tc) => {
         if (tc.status !== 'running' && tc.status !== 'pending') return tc;
         return {
           ...tc,
           status: targetStatus,
-          finishedAt: now,
-          elapsedMs: tc.startedAt ? now - tc.startedAt : tc.elapsedMs,
+          finishedAt: tc.finishedAt || now,
+          elapsedMs: tc.startedAt ? (tc.finishedAt || now) - tc.startedAt : tc.elapsedMs,
           error: errText ?? tc.error
         };
       });
     }
     if (Array.isArray(msg.steps)) {
       msg.steps = msg.steps.map((s) => {
+        if (s.kind === 'thought') {
+          if (!s.finishedAt) {
+            return { ...s, finishedAt: now };
+          }
+          return s;
+        }
         if (s.kind !== 'tool') return s;
         if (s.record.status !== 'running' && s.record.status !== 'pending') return s;
         return {
@@ -1072,8 +1085,8 @@ class ChatStore {
           record: {
             ...s.record,
             status: targetStatus,
-            finishedAt: now,
-            elapsedMs: s.record.startedAt ? now - s.record.startedAt : s.record.elapsedMs,
+            finishedAt: s.record.finishedAt || now,
+            elapsedMs: s.record.startedAt ? (s.record.finishedAt || now) - s.record.startedAt : s.record.elapsedMs,
             error: errText ?? s.record.error
           }
         };
@@ -1207,7 +1220,7 @@ class ChatStore {
       isDraft: true,
       providerId: settingsStore.data.activeProvider || undefined,
       modelId: settingsStore.data.activeModel || undefined,
-      projectPath,
+      projectPath: projectPath || workspaceStore.currentPath || undefined,
       hasError: false,
       hasUnreadCompletion: false,
       messageCount: 0,
@@ -1258,8 +1271,14 @@ class ChatStore {
                 m.streaming = false;
                 m.paused = true;
                 m.statusText = 'Paused';
-                m.finishedAt = m.finishedAt || Date.now();
-                this.finalizeRunningTools(m, 'paused');
+                const lastActive = Math.max(
+                  m.startedAt || 0,
+                  session?.updatedAt || 0,
+                  ...(m.steps || []).map((st: any) => st.finishedAt || st.startedAt || 0),
+                  ...(m.toolCalls || []).map((tc: any) => tc.finishedAt || tc.startedAt || 0)
+                ) || m.startedAt || Date.now();
+                m.finishedAt = m.finishedAt || lastActive;
+                this.finalizeRunningTools(m, 'paused', undefined, m.finishedAt);
                 changed = true;
               }
             }
@@ -1425,7 +1444,7 @@ class ChatStore {
     const titleSeed = text.trim() || options.attachments?.[0]?.name || 'New task';
     let chatId = options.targetChatId || this.activeChatId;
     if (!chatId) {
-      chatId = await this.createSession(titleSeed.slice(0, 36));
+      chatId = await this.createSession(titleSeed.slice(0, 36), workspaceStore.currentPath || undefined);
     }
 
     const userMsgId = `user-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`;
@@ -1446,6 +1465,9 @@ class ChatStore {
 
     const currentSession = this.sessions.find((s) => s.id === chatId);
     if (currentSession) {
+      if (!currentSession.projectPath && workspaceStore.currentPath) {
+        currentSession.projectPath = workspaceStore.currentPath;
+      }
       currentSession.isDraft = false;
       currentSession.updatedAt = Date.now();
       currentSession.messageCount = this.messagesByChat[chatId].length;
@@ -1525,7 +1547,7 @@ class ChatStore {
           contextWindow: detectedInfo?.contextWindow || modelCaps.contextWindow || null,
           maxOutputTokens: detectedInfo?.maxOutputTokens || null,
           supportsReasoning: detectedInfo?.supportsReasoning ?? modelCaps.supportsReasoning,
-          workspaceDir: sess?.projectPath || null,
+          workspaceDir: sess?.projectPath || workspaceStore.currentPath || null,
           planMode: !forceExecute && /(?:^|\s)\/plan(?:\s|$)/i.test(prompt.trim()),
           resume,
           history: priorHistory,
@@ -1610,6 +1632,12 @@ class ChatStore {
     targetMsg.statusText = 'Resuming';
     targetMsg.retryReason = undefined;
     targetMsg.modelId = settingsStore.data.activeModel || targetMsg.modelId;
+
+    const prevElapsed = (targetMsg.finishedAt && targetMsg.startedAt && targetMsg.finishedAt >= targetMsg.startedAt)
+      ? targetMsg.finishedAt - targetMsg.startedAt
+      : (targetMsg.toolCalls?.reduce((acc, tc) => acc + (tc.elapsedMs || 0), 0) || 0);
+
+    targetMsg.startedAt = Date.now() - prevElapsed;
     targetMsg.finishedAt = undefined;
 
     const currentSession = this.sessions.find((s) => s.id === chatId);
@@ -1620,7 +1648,7 @@ class ChatStore {
 
     this.streamingChats = { ...this.streamingChats, [chatId]: true };
     this.streamTokenCountByChat[chatId] = 0;
-    const baseElapsed = targetMsg.startedAt ? Date.now() - targetMsg.startedAt : 0;
+    const baseElapsed = prevElapsed;
     const startTime = Date.now() - baseElapsed;
     this.reasoningTimers[chatId] = window.setInterval(() => {
       this.reasoningElapsedByChat[chatId] = Date.now() - startTime;
