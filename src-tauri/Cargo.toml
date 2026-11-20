@@ -43,7 +43,7 @@ tiktoken-rs = "0.12.1"
 blake3 = "1.5"
 png = "0.17"
 flate2 = "1"
-windows = { version = "0.58", features = [
+windows = { version = "0.62", features = [
     "Win32_Foundation",
     "Win32_UI_WindowsAndMessaging",
     "Win32_UI_Input_KeyboardAndMouse",
