@@ -21,7 +21,7 @@
     "@tauri-apps/plugin-dialog": "^2.2.0",
     "@tauri-apps/plugin-fs": "^2.2.0",
     "@tauri-apps/plugin-shell": "^2.2.0",
-    "katex": "^0.16.21"
+    "katex": "^0.19.1"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^5.0.3",
