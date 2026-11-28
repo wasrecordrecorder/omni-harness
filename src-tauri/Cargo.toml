@@ -35,7 +35,7 @@ ignore = "0.4"
 regex = "1.11"
 zip = { version = "2.2", default-features = false, features = ["deflate"] }
 base64 = "0.22"
-tungstenite = "0.24"
+tungstenite = "0.30"
 url = "2.5"
 urlencoding = "2.1"
 wait-timeout = "0.2"
