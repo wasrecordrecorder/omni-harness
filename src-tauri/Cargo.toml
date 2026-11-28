@@ -19,7 +19,7 @@ tauri-plugin-fs = "2.2.0"
 tauri-plugin-notification = "2.2.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-rusqlite = { version = "0.31", features = ["bundled"] }
+rusqlite = { version = "0.43", features = ["bundled"] }
 tokio = { version = "1.42", features = ["full"] }
 chrono = { version = "0.4", features = ["serde"] }
 keyring = "2.3"
